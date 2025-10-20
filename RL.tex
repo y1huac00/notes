@@ -1,0 +1,980 @@
+\documentclass[12pt]{article}
+
+% 数学宏包
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{CJK}
+\usepackage[ruled,vlined]{algorithm2e}
+\usepackage{booktabs}   % 提供 \toprule, \midrule, \bottomrule 等命令，适合学术表格
+\usepackage{array}
+\usepackage{float}      % 提供 [H] 浮动控制选项，让表格固定在当前位置
+\usepackage{caption}    % 改进表格标题样式
+\usepackage{xcolor}     % 如果你想为表格添加轻微底色或高亮
+\usepackage{graphicx}
+
+% 定理环境设置
+\theoremstyle{definition} % 定义类（直立字体）
+\newtheorem{definition}{Definition}[section]
+
+\theoremstyle{plain} % 定理类（斜体）
+\newtheorem{theorem}[definition]{Theorem}
+\newtheorem{lemma}[definition]{Lemma}
+\newtheorem{corollary}[definition]{Corollary}
+\newtheorem{proposition}[definition]{Proposition}
+
+\theoremstyle{remark} % 备注类（直立字体，带斜体标题）
+\newtheorem{remark}[definition]{Remark}
+\newtheorem{example}[definition]{Example}
+
+% 证明环境
+\renewcommand\qedsymbol{$\blacksquare$} % QED 符号改成实心方块
+
+% 页面与字体
+\usepackage[a4paper, margin=1in]{geometry}
+\usepackage{lmodern} % 更好看的字体
+
+% 数学集合常用符号
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\N}{\mathbb{N}}
+
+\begin{document}
+\begin{CJK}{UTF8}{gbsn}
+
+\section{Intro}
+\section{Imitation learning}
+\begin{flushleft}
+\begin{tabular}{ll}
+$\mathbf{s}_t$ & state \\
+$\mathbf{o}_t$ & observation \\
+$\mathbf{a}_t$ & action \\
+$\pi_\theta(\mathbf{a}_t \mid \mathbf{o}_t)$ & policy \\
+$\pi_\theta(\mathbf{a}_t \mid \mathbf{s}_t)$ & policy (fully observed) \\
+\end{tabular}
+\end{flushleft}
+In regular supervised learning, we have the i.i.d assumption, i.e. training points does not affect each other. However, we don't have such assumption in RL, taking actions affects
+next observations.
+
+\section{Policy Gradient Methods}
+
+\subsection{Motivation}
+
+Value-based methods (e.g., Q-learning) estimate action values and then derive the policy indirectly by taking the action with the highest value.  
+In contrast, \textbf{policy gradient methods} directly optimize the parameters of a policy
+\(\pi_\theta(a|s)\) with respect to expected return.  
+They are especially suitable for:
+\begin{itemize}
+    \item Continuous or high-dimensional action spaces
+    \item Stochastic policies (exploration via inherent randomness)
+\end{itemize}
+
+---
+
+\subsection{Problem Setup}
+
+Let the agent follow a parameterized policy \(\pi_\theta(a|s)\).
+The goal is to maximize the expected discounted return:
+
+\[
+J(\theta) = \mathbb{E}_{\tau \sim \pi_\theta} [ R(\tau) ]
+\]
+
+where a trajectory \(\tau = (s_0,a_0,s_1,a_1,\ldots)\) is generated according to:
+\[
+p(\tau|\theta) = \rho_0(s_0) \prod_{t=0}^{T-1} \pi_\theta(a_t|s_t) P(s_{t+1}|s_t,a_t),
+\]
+and the cumulative discounted reward is
+\[
+R(\tau) = \sum_{t=0}^{T-1} \gamma^t r(s_t,a_t).
+\]
+
+---
+
+\subsection{The Policy Gradient Theorem}
+
+We aim to compute the gradient of \(J(\theta)\) with respect to \(\theta\):
+\[
+\nabla_\theta J(\theta) = \nabla_\theta \mathbb{E}_{\tau \sim \pi_\theta}[R(\tau)].
+\]
+
+Expanding the expectation:
+\[
+\nabla_\theta J(\theta)
+= \int R(\tau) \nabla_\theta p(\tau|\theta) d\tau.
+\]
+
+Applying the \textbf{log-derivative trick}:
+\[
+\nabla_\theta p(\tau|\theta) = p(\tau|\theta)\nabla_\theta \log p(\tau|\theta),
+\]
+we obtain:
+\[
+\nabla_\theta J(\theta)
+= \mathbb{E}_{\tau \sim \pi_\theta} \left[
+R(\tau)\, \nabla_\theta \log p(\tau|\theta)
+\right].
+\]
+
+Now note that:
+\[
+\log p(\tau|\theta) = \sum_{t=0}^{T-1} \log \pi_\theta(a_t|s_t),
+\]
+so:
+\[
+\nabla_\theta J(\theta)
+= \mathbb{E}_{\tau \sim \pi_\theta} \left[
+\sum_{t=0}^{T-1} R(\tau)\, \nabla_\theta \log \pi_\theta(a_t|s_t)
+\right].
+\]
+
+This is the foundation of the \textbf{REINFORCE algorithm}.
+
+---
+
+\subsection{Reducing Variance with Return-to-Go}
+
+Instead of using the total return \(R(\tau)\) for each timestep,
+we can use the \emph{return-to-go} \(G_t\):
+
+\[
+G_t = \sum_{k=t}^{T-1} \gamma^{k-t} r(s_k,a_k)
+\]
+
+Then, the gradient estimator becomes:
+\[
+\nabla_\theta J(\theta)
+= \mathbb{E}_{\tau \sim \pi_\theta} \left[
+\sum_{t=0}^{T-1} G_t\, \nabla_\theta \log \pi_\theta(a_t|s_t)
+\right].
+\]
+
+This reduces variance since it only attributes future rewards to current actions.
+
+---
+
+\subsection{Baseline and Advantage Function}
+
+To further reduce variance, we subtract a baseline \(b(s_t)\) that does not depend on the action:
+\[
+\nabla_\theta J(\theta)
+= \mathbb{E}_{\tau \sim \pi_\theta} \left[
+\sum_{t=0}^{T-1} (G_t - b(s_t))\, \nabla_\theta \log \pi_\theta(a_t|s_t)
+\right].
+\]
+
+A common and effective choice is:
+\[
+b(s_t) = V^\pi(s_t)
+\]
+
+Then, the term \(G_t - V^\pi(s_t)\) is the \textbf{advantage function}:
+\[
+A^\pi(s_t,a_t) = Q^\pi(s_t,a_t) - V^\pi(s_t)
+\]
+
+Thus, the general policy gradient becomes:
+\[
+\boxed{
+\nabla_\theta J(\theta)
+= \mathbb{E}_{s_t,a_t \sim \pi_\theta}
+\left[ A^\pi(s_t,a_t)\, \nabla_\theta \log \pi_\theta(a_t|s_t) \right].
+}
+\]
+
+---
+
+\subsection{Actor–Critic Methods}
+
+In practice, we approximate:
+\begin{itemize}
+    \item \(A^\pi(s,a)\) or \(V^\pi(s)\) using a critic network (value function estimator)
+    \item \(\pi_\theta(a|s)\) using an actor network (policy)
+\end{itemize}
+
+The critic is trained by minimizing:
+\[
+L_V(\phi) = \frac{1}{2}\, \mathbb{E}_{s_t \sim \pi_\theta}
+\left[ (V_\phi(s_t) - G_t)^2 \right].
+\]
+
+The actor is updated via:
+\[
+\nabla_\theta J(\theta)
+\approx \mathbb{E}_{s_t,a_t \sim \pi_\theta}
+\left[ (G_t - V_\phi(s_t))\, \nabla_\theta \log \pi_\theta(a_t|s_t) \right].
+\]
+
+---
+
+\subsection{Intuitive Summary}
+
+\begin{itemize}
+    \item The policy gradient optimizes expected return directly.
+    \item The gradient direction is determined by:
+    \[
+    \nabla_\theta \log \pi_\theta(a_t|s_t)
+    \]
+    scaled by how good the action was:
+    \[
+    A^\pi(s_t,a_t)
+    \]
+    \item The baseline reduces variance without introducing bias.
+    \item Actor-Critic = policy gradient + value function approximation.
+\end{itemize}
+
+---
+
+\subsection{Algorithm: REINFORCE}
+
+\begin{algorithm}[H]
+\caption{REINFORCE Algorithm}
+Initialize policy parameters $\theta$ \;
+\Repeat{}{
+    Collect trajectory $\tau = (s_0,a_0,r_0,\dots,s_T)$ by running $\pi_\theta$ \;
+    \For{each time step $t = 0, \dots, T-1$}{
+        Compute return-to-go $G_t = \sum_{k=t}^{T-1} \gamma^{k-t} r_k$ \;
+        Update policy: $\theta \leftarrow \theta + \alpha G_t \nabla_\theta \log \pi_\theta(a_t|s_t)$ \;
+    }
+}
+\end{algorithm}
+
+
+
+\section{Fitted Q-Iteration, Function Approximation, and Bellman Operator}
+
+\subsection{Function Approximators}
+
+In reinforcement learning, we aim to estimate the optimal action-value function \( Q^*(s,a) \).  
+When the state-action space is large or continuous, we cannot store one value per pair, so we approximate it with a parameterized function \( Q_\phi(s,a) \):
+
+\[
+Q_\phi(s,a) \approx Q^*(s,a)
+\]
+
+Common types of function approximators include:
+
+\begin{itemize}
+    \item \textbf{Tabular:} Each \( (s,a) \) pair has a separate entry.
+    \item \textbf{Linear:} \( Q_\phi(s,a) = \phi^\top x(s,a) \)
+    \item \textbf{Nonlinear:} Neural networks \( Q_\phi(s,a) = f_\phi(s,a) \)
+    \item \textbf{Kernel / Gaussian process:} \( Q_\phi(s,a) = \sum_i \alpha_i k((s,a),(s_i,a_i)) \)
+\end{itemize}
+
+---
+
+\subsection{The Bellman Optimality Operator}
+
+The Bellman optimality equation is defined as:
+
+\[
+Q^*(s,a) = r(s,a) + \gamma \mathbb{E}_{s' \sim P(\cdot|s,a)}\left[\max_{a'} Q^*(s', a')\right]
+\]
+
+Define the \textbf{Bellman optimality operator} \( \mathcal{T}^* \) acting on any function \( Q \):
+
+\[
+(\mathcal{T}^* Q)(s,a) = r(s,a) + \gamma \mathbb{E}_{s'}\left[\max_{a'} Q(s',a')\right]
+\]
+
+Then the optimal \( Q^* \) satisfies the fixed-point condition:
+
+\[
+Q^* = \mathcal{T}^* Q^*
+\]
+
+That is, \( Q^* \) is the fixed point of the Bellman operator.
+
+---
+
+\subsection{Contraction Property of the Bellman Operator}
+
+The Bellman operator \( \mathcal{T}^* \) is a \(\gamma\)-\textbf{contraction mapping} under the sup norm \( \|\cdot\|_\infty \):
+
+\[
+\|\mathcal{T}^* Q_1 - \mathcal{T}^* Q_2\|_\infty \le \gamma \|Q_1 - Q_2\|_\infty, \quad \forall Q_1, Q_2
+\]
+
+This implies that repeated application of \( \mathcal{T}^* \) moves any \( Q \) closer to \( Q^* \).
+
+---
+
+\subsection{Banach Fixed-Point Theorem}
+
+\begin{theorem}[Banach Fixed-Point Theorem]
+Let \( (X, d) \) be a complete metric space and \( T : X \to X \) be a contraction mapping, i.e.
+\[
+d(Tx, Ty) \le \gamma d(x,y), \quad 0 \le \gamma < 1.
+\]
+Then:
+\begin{enumerate}
+    \item \( T \) has a unique fixed point \( x^* \in X \).
+    \item Starting from any \( x_0 \in X \), the sequence \( x_{k+1} = T(x_k) \) converges to \( x^* \).
+\end{enumerate}
+\end{theorem}
+
+Applying this theorem with \( X = \mathbb{R}^{|S||A|} \), \( d = \|\cdot\|_\infty \), and \( T = \mathcal{T}^* \),
+we conclude that \( Q^* \) is the unique fixed point and
+\[
+Q_{k+1} = \mathcal{T}^* Q_k \quad \Longrightarrow \quad Q_k \to Q^*.
+\]
+
+---
+
+\subsection{Function Approximation and the Projected Bellman Operator}
+
+When using function approximators such as neural networks, we can only represent a subset of all possible functions.  
+Hence, we define a \textbf{projected Bellman operator}:
+\[
+\mathcal{T}_\Pi Q = \Pi \mathcal{T}^* Q,
+\]
+where \( \Pi \) denotes projection onto the function space representable by \( Q_\phi \).
+
+However, \( \mathcal{T}_\Pi \) is generally \emph{not} a contraction mapping:
+\[
+\|\mathcal{T}_\Pi Q_1 - \mathcal{T}_\Pi Q_2\|_\infty \not\le \gamma \|Q_1 - Q_2\|_\infty,
+\]
+so convergence is not guaranteed. This explains why nonlinear function approximators such as deep neural networks may cause instability or divergence.
+
+---
+
+\subsection{Summary Table}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{lccc}
+\hline
+\textbf{Setting} & \textbf{Q Representation} & \textbf{Bellman Operator Type} & \textbf{Convergence Guarantee} \\
+\hline
+Tabular & Lookup table & Exact \( \mathcal{T}^* \) & Guaranteed (Banach theorem) \\
+Linear Approximation & \( Q_\phi(s,a) = \phi^\top x(s,a) \) & Approximate & Sometimes guaranteed \\
+Neural Networks & \( Q_\phi(s,a) = f_\phi(s,a) \) & Projected \( \mathcal{T}_\Pi \) & No theoretical guarantee \\
+\hline
+\end{tabular}
+\end{table}
+
+---
+
+\subsection{Intuitive Summary}
+
+\begin{quote}
+The Bellman operator \( \mathcal{T}^* \) ``pulls'' any Q-function toward the optimal fixed point \( Q^* \).
+Fitted Q-Iteration iteratively applies this operator via function approximation.
+In the tabular or linear case, this process is a contraction and converges to \( Q^* \).
+In the nonlinear case (e.g., deep neural networks), the projection breaks contraction,
+and convergence is no longer guaranteed.
+\end{quote}
+
+\begin{table}[h!]
+\centering
+\caption{Comparison among Q-Iteration, Q-Learning, and Online Q-Iteration}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{l|l|l|l}
+\toprule
+\textbf{Aspect} &
+\textbf{Q-Iteration} &
+\textbf{Q-Learning} &
+\textbf{Online Q-Iteration (Function Approximation)} \\
+\midrule
+\textbf{Mathematical form} &
+$Q_{k+1}(s,a) = r(s,a) + \gamma \sum_{s'} P(s'|s,a)\max_{a'} Q_k(s',a')$ &
+$Q(s_t,a_t) \leftarrow Q(s_t,a_t) + \alpha [r_t + \gamma \max_{a'} Q(s_{t+1},a') - Q(s_t,a_t)]$ &
+$\phi \leftarrow \phi - \alpha \nabla_\phi Q_\phi(s_i,a_i)\,[Q_\phi(s_i,a_i) - (r_i + \gamma \max_{a'} Q_\phi(s'_i,a'))]$ \\
+\midrule
+\textbf{Core idea} &
+Exact Bellman iteration using known model &
+Sample-based approximation of Bellman operator &
+Gradient descent on Bellman error with function approximation \\
+\midrule
+\textbf{Environment model $P(s'|s,a)$} &
+Required (model-based) &
+Not required (model-free) &
+Not required (model-free) \\
+\midrule
+\textbf{Update type} &
+Batch / synchronous (all states) &
+Incremental / online (per step) &
+Online stochastic gradient (per sample) \\
+\midrule
+\textbf{Function representation} &
+Tabular (explicit $Q(s,a)$) &
+Tabular (explicit $Q(s,a)$) &
+Parameteric $Q_\phi(s,a)$ (e.g., neural network) \\
+\midrule
+\textbf{Learning signal} &
+Exact expectation $\mathbb{E}_{s'}[\cdot]$ &
+Single transition sample &
+Mini-batch / single-sample gradient step \\
+\midrule
+\textbf{Policy type} &
+Greedy: $\pi(s)=\arg\max_a Q(s,a)$ &
+Off-policy (e.g., $\epsilon$-greedy for exploration) &
+Off-policy, with many choices of behavior policy \\
+\midrule
+\textbf{Objective interpretation} &
+Find fixed point of Bellman optimality operator $\mathcal{T}^*$ &
+Stochastic approximation to fixed point &
+Minimize Bellman error: $\frac{1}{2}\mathbb{E}[(Q_\phi - \mathcal{T}^* Q_\phi)^2]$ \\
+\midrule
+\textbf{Data usage} &
+Uses full transition probabilities &
+Uses sampled transitions $(s,a,r,s')$ &
+Uses replay buffer / online samples $(s,a,r,s')$ \\
+\midrule
+\textbf{Convergence guarantee} &
+Guaranteed (Bellman contraction) &
+Guaranteed under conditions (Robbins–Monro) &
+Not guaranteed (depends on function class / optimization) \\
+\midrule
+\textbf{Computation cost} &
+High (full state sweep) &
+Low (one-step updates) &
+High per update (backpropagation, nonlinear fit) \\
+\midrule
+\textbf{Example algorithms} &
+Value Iteration, Dynamic Programming &
+Tabular Q-Learning &
+DQN, Double DQN, Fitted Q-Iteration \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+%==========================
+%  表 1：Online vs Offline
+%==========================
+\begin{table}[h!]
+\centering
+\caption{Comparison between Online and Offline Reinforcement Learning}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{l|l|l}
+\toprule
+\textbf{Aspect} & \textbf{Online RL} & \textbf{Offline RL} \\
+\midrule
+\textbf{Data source} & Collected in real time during interaction with the environment & Pre-collected static dataset (no further environment interaction) \\
+\midrule
+\textbf{Update timing} & Update parameters after every step or episode & Train model using fixed data, all updates done offline \\
+\midrule
+\textbf{Environment access} & Required (agent interacts continuously) & Not required (training purely from data) \\
+\midrule
+\textbf{Data distribution} & Continuously changes as policy improves & Fixed; determined by behavior policy that collected data \\
+\midrule
+\textbf{Advantages} & Adaptive, can learn from continuous feedback & Safe, data-efficient, usable in domains where interaction is costly \\
+\midrule
+\textbf{Challenges} & Instability, high variance, exploration–exploitation tradeoff & Distributional shift, extrapolation error, overestimation \\
+\midrule
+\textbf{Typical algorithms} & Q-Learning, SARSA, Actor–Critic, DDPG, PPO & Fitted Q-Iteration, DQN (offline), CQL, IQL, Behavior Cloning \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+%=============================
+%  表 2：On-policy vs Off-policy
+%=============================
+\begin{table}[h!]
+\centering
+\caption{Comparison between On-policy and Off-policy Learning}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{l|l|l}
+\toprule
+\textbf{Aspect} & \textbf{On-policy} & \textbf{Off-policy} \\
+\midrule
+\textbf{Definition} & Learns the value of the \emph{same} policy used to generate data & Learns the value of a \emph{different} (target) policy than data-generating policy \\
+\midrule
+\textbf{Behavior vs. target policy} & Identical ($\pi_b = \pi_t$) & Different ($\pi_b \neq \pi_t$) \\
+\midrule
+\textbf{Exploration method} & Exploration built into policy (e.g., $\epsilon$-greedy within current policy) & Can reuse off-policy data and experience replay \\
+\midrule
+\textbf{Advantages} & Stable, lower bias, directly improves current policy & Data-efficient, can leverage past experience and other agents' data \\
+\midrule
+\textbf{Challenges} & Requires fresh data, less efficient & Risk of distribution mismatch, instability in importance sampling \\
+\midrule
+\textbf{Typical algorithms} & SARSA, A2C, PPO, Policy Gradient (on-policy) & Q-Learning, DQN, DDPG, SAC, Fitted Q-Iteration \\
+\midrule
+\textbf{Relation to data} & Must collect new data from current policy & Can learn from arbitrary datasets (even offline) \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+\section{Deep RL with Q-Fucntions}
+\subsection{Why Q-Learning is \textbf{not} Gradient Descent}
+
+\subsubsection{The Apparent Gradient Descent Form}
+
+In function-approximation Q-learning, the update rule is:
+
+\[
+\phi \leftarrow \phi - \alpha \nabla_\phi Q_\phi(s_i, a_i)
+\big( Q_\phi(s_i,a_i) - y_i \big),
+\quad 
+y_i = r(s_i,a_i) + \gamma \max_{a'} Q_\phi(s'_i, a')
+\]
+
+This looks like minimizing the following squared error:
+
+\[
+L(\phi) = \frac{1}{2} (Q_\phi(s_i,a_i) - y_i)^2.
+\]
+
+At first glance, it appears to be a standard gradient descent step.
+
+---
+
+\subsubsection{The Hidden Problem: \textit{Target Depends on } $\phi$}
+
+However, the target \( y_i \) itself depends on the same parameters \( \phi \) through \( Q_\phi(s'_i,a') \).
+If we compute the true gradient of \( L(\phi) \):
+
+\[
+\nabla_\phi L(\phi)
+= (Q_\phi(s_i,a_i) - y_i)
+\Big[
+\nabla_\phi Q_\phi(s_i,a_i)
+- \nabla_\phi \big(r(s_i,a_i) + \gamma \max_{a'} Q_\phi(s'_i,a')\big)
+\Big],
+\]
+
+we can see that the second term propagates gradient through the target value \(y_i\).
+In practice, \textbf{Q-learning ignores this term}:
+
+\[
+\text{no gradient through target: } \quad
+\nabla_\phi y_i = 0.
+\]
+
+Hence, Q-learning performs a *semi-gradient* update, not a true gradient descent step.
+
+---
+
+\subsubsection{Why Ignoring the Gradient is Necessary}
+
+If gradients were allowed to flow through the target \(y_i\), the optimization would become unstable because:
+\begin{itemize}
+    \item The target \(y_i\) changes as \(Q_\phi\) changes --- a moving target.
+    \item The learning objective is not fixed; both sides of the Bellman equation depend on the same parameters.
+\end{itemize}
+
+Therefore, Q-learning treats \(y_i\) as a constant:
+\[
+y_i = \text{stop\_gradient}\big(r_i + \gamma \max_{a'} Q_\phi(s'_i,a')\big),
+\]
+turning the update into a \textbf{fixed-point iteration} rather than a true gradient-based optimization.
+
+---
+
+\subsubsection{Comparison: Gradient Descent vs Q-Learning Update}
+
+\begin{table}[h!]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tabular}{l|l|l}
+\toprule
+\textbf{Aspect} & \textbf{True Gradient Descent} & \textbf{Q-Learning Update} \\
+\midrule
+Objective & Minimize fixed loss function \(L(\phi)\) & Satisfy Bellman fixed-point equation \\
+\midrule
+Target \(y\) & Constant (does not depend on $\phi$) & Depends on $\phi$, but gradient stopped \\
+\midrule
+Gradient flow & Through both prediction and target & Through prediction only \\
+\midrule
+Type of optimization & Standard supervised learning (convex/nonconvex) & Bootstrapped fixed-point iteration \\
+\midrule
+Stability & Usually stable (well-defined loss landscape) & Can diverge (moving target problem) \\
+\midrule
+Interpretation & Minimizing a static objective & Approximating the Bellman operator $\mathcal{T}^*$ \\
+\midrule
+Example & Linear regression, cross-entropy loss & TD-learning, Q-learning, DQN \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+---
+
+\subsubsection{Conceptual Interpretation}
+
+\begin{itemize}
+    \item In gradient descent, we descend a \textit{fixed hill}; the loss surface does not move as we update parameters.
+    \item In Q-learning, the ``hill'' itself moves, because the target depends on the same parameters — we are chasing a moving target.
+\end{itemize}
+
+---
+
+\subsubsection{Connection to DQN}
+
+To mitigate the instability caused by a moving target, DQN introduces a 
+\textbf{target network} \(Q_{\phi^-}\) for computing targets:
+
+\[
+y_i = r_i + \gamma \max_{a'} Q_{\phi^-}(s'_i, a'),
+\quad \text{with } \phi^- \text{ updated slowly (periodically frozen)}.
+\]
+
+This makes the target temporarily constant, bringing the update closer to a stable gradient descent process.
+
+---
+
+\subsubsection{Summary}
+
+\begin{quote}
+\textbf{Q-learning is not true gradient descent}, because it ignores gradients through its bootstrapped target.
+It is a fixed-point iteration aiming to satisfy the Bellman equation, not to minimize a static differentiable loss.
+\end{quote}
+
+
+\subsection{A More General View of Q-Learning and DQN}
+
+\subsubsection{The Three-Process View}
+
+Q-learning with replay buffer and target network can be decomposed into three main processes:
+
+\begin{enumerate}
+    \item \textbf{Process 1: Data Collection}  
+    Interact with the environment using a policy $\pi(a|s)$ (e.g., $\epsilon$-greedy), 
+    collect transitions $(s, a, s', r)$, and store them in the replay buffer $\mathcal{B}$.
+    
+    \item \textbf{Process 2: Target Update}  
+    Update target network parameters periodically or smoothly:
+    \[
+    \phi' \leftarrow \tau \phi' + (1 - \tau)\phi \quad \text{or} \quad \phi' \leftarrow \phi
+    \]
+    This provides a stable target for Q-learning.
+    
+    \item \textbf{Process 3: Q-Function Regression}  
+    Sample batches from the replay buffer and perform gradient descent:
+    \[
+    \phi \leftarrow \phi - \alpha \sum_i 
+    \nabla_\phi Q_\phi(s_i,a_i)
+    \Big(Q_\phi(s_i,a_i) - [r_i + \gamma \max_{a'} Q_{\phi'}(s'_i,a')]\Big)
+    \]
+\end{enumerate}
+
+The overall structure is visualized as follows:
+
+\[
+\text{Environment} 
+\leftrightarrow{\pi(a|s)}
+\text{Replay Buffer} 
+\longrightarrow 
+\text{Current Parameters } (\phi)
+\longrightarrow 
+\text{Target Parameters } (\phi')
+\longrightarrow 
+\text{Q-function Regression}
+\]
+
+Old transitions are evicted periodically to maintain buffer freshness.
+
+---
+
+\subsubsection{Process Interaction Overview}
+
+\begin{itemize}
+    \item \textbf{Process 1 — Data Collection:}  
+    Generates new transitions $(s, a, s', r)$ and inserts them into the replay buffer.  
+    It determines how the agent explores the environment.
+
+    \item \textbf{Process 2 — Target Update:}  
+    Updates target parameters $\phi'$, either hard or soft, defining how frequently the target values change.
+
+    \item \textbf{Process 3 — Q-Function Regression:}  
+    Uses sampled batches from $\mathcal{B}$ to update $\phi$ by minimizing the TD error.
+\end{itemize}
+
+These processes may run at different speeds or be nested within each other, leading to different algorithmic variants.
+
+---
+
+\subsubsection{Algorithm Comparisons in the Three-Process Framework}
+
+\begin{table}[h!]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tabular}{l|p{5cm}|p{5cm}|p{5cm}}
+\toprule
+\textbf{Algorithm} & \textbf{Process 1 (Data Collection)} & \textbf{Process 2 (Target Update)} & \textbf{Process 3 (Q-Function Regression)} \\
+\midrule
+\textbf{Online Q-Learning} & Collects new transition, immediately discards old ones. & No separate target network (same $\phi$ used). & All processes run simultaneously at same speed. \\
+\midrule
+\textbf{DQN} & Process 1 and 3 run together (real-time data collection and regression). & Process 2 (target update) runs slowly (periodically or softly). & Regression uses replay buffer to decorrelate samples. \\
+\midrule
+\textbf{Fitted Q-Iteration} & Data collection (process 1) is outer loop. & Target update (process 2) inside it. & Regression (process 3) runs as an inner optimization loop until convergence. \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+---
+
+\subsubsection{Intuitive Summary}
+
+\begin{itemize}
+    \item Reinforcement learning can be understood as the interaction of three asynchronous processes:
+        \begin{enumerate}
+            \item Data generation (environment sampling)
+            \item Target computation (stabilization)
+            \item Function approximation (learning)
+        \end{enumerate}
+    \item Different RL algorithms can be viewed as different synchronization choices between these processes.
+    \item DQN improves upon online Q-learning by decoupling these processes and allowing stable off-policy updates.
+\end{itemize}
+
+---
+
+\subsubsection{Key Insights}
+
+\begin{itemize}
+    \item The replay buffer provides a bridge between \textbf{data collection} and \textbf{Q-function learning}.
+    \item The target network acts as a temporal buffer between \textbf{learning} and \textbf{bootstrapping}.
+    \item By adjusting their relative update speeds, we can control the trade-off between \textit{stability} and \textit{learning speed}.
+\end{itemize}
+
+---
+
+\subsubsection{Summary of Process Speed Hierarchies}
+
+\[
+\begin{array}{ll}
+\textbf{Online Q-learning:} & \text{Process 1, 2, 3 all run at the same rate.} \\
+\textbf{DQN:} & \text{Process 1 \& 3 run together; Process 2 (target) is slower.} \\
+\textbf{Fitted Q-Iteration:} & \text{Process 3 nested inside Process 2, which is nested inside Process 1.}
+\end{array}
+\]
+
+\subsection{Q-learning with N-step Returns}
+
+In standard Q-learning, the target value is computed using a single-step reward:
+\[
+y_t = r_t + \gamma \max_a Q_{\phi'}(s_{t+1}, a)
+\]
+This approach relies heavily on bootstrapping from the next state, which can introduce high bias and slow propagation of reward information.
+
+To address this, we can use \textbf{N-step returns} to incorporate multiple future rewards:
+
+\[
+y_{j,t} = 
+\sum_{t' = t}^{t + N - 1} 
+\gamma^{t' - t} r_{j,t'} 
++ 
+\gamma^N \max_{a_{j,t+N}} 
+Q_{\phi'}(s_{j,t+N}, a_{j,t+N})
+\]
+
+This estimates the expected return for policy $\pi$ as:
+\[
+Q^\pi(s_{j,t}, a_{j,t}) \approx y_{j,t}
+\]
+where the policy $\pi$ is assumed to be:
+\[
+\pi(a_t|s_t) =
+\begin{cases}
+1, & \text{if } a_t = \arg\max_a Q_\phi(s_t, a) \\
+0, & \text{otherwise.}
+\end{cases}
+\]
+
+---
+
+\subsubsection*{Advantages}
+
+\begin{itemize}
+    \item \textbf{Less biased target values:} Incorporates multiple real rewards, reducing dependence on inaccurate Q-values early in training.
+    \item \textbf{Faster learning:} Reward information propagates backward more quickly, improving sample efficiency.
+\end{itemize}
+
+---
+
+\subsubsection*{Limitation: Off-policy Bias}
+
+The N-step formulation assumes that all intermediate transitions 
+$(s_{t'}, a_{t'})$ for $t' - t < N-1$ 
+are generated by the same policy $\pi$.  
+This assumption holds for \textbf{on-policy} learning, but breaks for \textbf{off-policy} settings (e.g., when using a replay buffer).
+
+Therefore, the N-step target is:
+\begin{itemize}
+    \item \textcolor{red}{\textbf{Only theoretically correct when learning on-policy.}}
+    \item \textcolor{gray}{Off-policy data can introduce bias because transitions may come from older behavior policies.}
+\end{itemize}
+
+For $N = 1$, this issue disappears since only one transition $(s_t, a_t, r_t, s_{t+1})$ is required, which is valid for any policy.
+
+---
+
+\subsubsection*{Practical Fixes for Off-policy Settings}
+
+\begin{enumerate}
+    \item \textbf{Ignore the problem} – Simply apply N-step targets without correction.  
+    In practice, this often works well for small $N$.
+    \item \textbf{Cut the trace} – Dynamically choose $N$ to include only on-policy segments.  
+    Effective when most samples are near on-policy and the action space is small.
+    \item \textbf{Importance sampling} – Weight each step by 
+    $\prod_t \frac{\pi(a_t|s_t)}{\mu(a_t|s_t)}$ 
+    to correct off-policy bias.  
+    This is theoretically correct but may increase variance.
+\end{enumerate}
+
+---
+
+\subsubsection*{Summary}
+
+\begin{table}[h!]
+\centering
+\renewcommand{\arraystretch}{1.3}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{l|p{6cm}|p{6cm}}
+\toprule
+\textbf{Aspect} & \textbf{Advantage} & \textbf{Limitation / Concern} \\
+\midrule
+Bias & Reduces bias when Q-values are inaccurate & Only unbiased for on-policy data \\
+Learning Speed & Propagates reward information faster & May introduce instability off-policy \\
+Implementation & Easy to extend from standard Q-learning & Needs multiple consecutive transitions \\
+Off-policy Use & Can be corrected via importance sampling & High variance in correction weights \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+---
+
+\subsubsection*{Reference}
+
+For a formal treatment, see:
+\begin{quote}
+Munos et al., \textit{``Safe and Efficient Off-Policy Reinforcement Learning''}, 2016.
+\end{quote}
+\subsection{Double Deep Q-learning (Double DQN)}
+
+\subsubsection*{Motivation}
+
+Although the classic Deep Q-learning (DQN) algorithm greatly stabilizes Q-learning with replay buffers and target networks, 
+it still suffers from \textbf{overestimation bias}.  
+
+In standard DQN, the target is computed as:
+\[
+y_t = r_t + \gamma \max_{a'} Q_{\phi'}(s_{t+1}, a')
+\]
+Since both the selection and evaluation of the maximizing action are done using the same Q-network $Q_{\phi'}$, 
+any noise or over-optimistic estimate in $Q_{\phi'}$ tends to be \textbf{amplified by the $\max$ operator}.
+
+This phenomenon can systematically overestimate Q-values, leading to suboptimal policies.
+
+---
+
+\subsubsection*{Key Idea}
+
+\textbf{Double DQN} (van Hasselt et al., 2016) addresses this problem by \emph{decoupling action selection and evaluation}.
+
+Instead of using the same network for both roles, Double DQN uses:
+\begin{itemize}
+    \item The \textbf{online network} $Q_{\phi}$ to \textbf{select} the greedy action.
+    \item The \textbf{target network} $Q_{\phi'}$ to \textbf{evaluate} that action.
+\end{itemize}
+
+The new target value is defined as:
+\[
+y_t^{\text{DoubleDQN}} = 
+r_t + 
+\gamma \,
+Q_{\phi'} \bigl( s_{t+1}, 
+\arg\max_{a'} Q_{\phi}(s_{t+1}, a') 
+\bigr)
+\]
+
+That is, the $\arg\max$ is computed by the current (online) parameters $\phi$, 
+but the value is obtained from the slower-moving target parameters $\phi'$.
+
+---
+
+\subsubsection*{Algorithm}
+
+\begin{enumerate}
+    \item Collect transitions $(s_t, a_t, r_t, s_{t+1})$ into replay buffer $\mathcal{B}$.
+    \item Sample a mini-batch $\{ (s_j, a_j, r_j, s'_j) \}$ from $\mathcal{B}$.
+    \item Compute targets using:
+    \[
+    y_j = r_j + \gamma 
+    Q_{\phi'}(s'_j, \arg\max_{a'} Q_{\phi}(s'_j, a'))
+    \]
+    \item Update the online network parameters $\phi$ by minimizing:
+    \[
+    L(\phi) = 
+    \frac{1}{2} \sum_j 
+    \bigl(
+    Q_{\phi}(s_j, a_j) - y_j
+    \bigr)^2
+    \]
+    \item Periodically update the target network:
+    \[
+    \phi' \leftarrow \tau \phi' + (1 - \tau)\phi
+    \quad \text{(soft update, or hard copy every $N$ steps)}
+    \]
+\end{enumerate}
+
+---
+
+\subsubsection*{Intuition}
+
+In standard DQN:
+\[
+\text{same network for both selection and evaluation} 
+\Rightarrow 
+\text{biased overestimation}
+\]
+
+In Double DQN:
+\[
+\text{two networks:}
+\begin{cases}
+\text{Selection: } a^* = \arg\max_a Q_{\phi}(s', a) \\
+\text{Evaluation: } Q_{\phi'}(s', a^*)
+\end{cases}
+\Rightarrow 
+\text{more accurate targets, reduced bias.}
+\]
+
+This results in more stable learning, especially in stochastic environments where rewards and value estimates are noisy.
+
+---
+
+\subsubsection*{Advantages and Disadvantages}
+
+\begin{table}[h!]
+\centering
+\renewcommand{\arraystretch}{1.3}
+\resizebox{\textwidth}{!}{
+\begin{tabular}{l|p{6cm}|p{6cm}}
+\toprule
+\textbf{Aspect} & \textbf{Advantage} & \textbf{Limitation / Concern} \\
+\midrule
+Estimation Bias & Reduces overestimation in Q-values & May introduce slight underestimation \\
+Stability & Improves training stability compared to vanilla DQN & Still sensitive to hyperparameters \\
+Computation & Requires only minor changes to DQN (same architecture) & Needs careful synchronization between $\phi$ and $\phi'$ \\
+Empirical Results & Performs significantly better on Atari benchmarks & Benefits diminish for very large networks or continuous actions \\
+\bottomrule
+\end{tabular}
+}
+\end{table}
+
+---
+
+\subsubsection*{Summary}
+
+\begin{itemize}
+    \item Double DQN separates action selection and evaluation, effectively correcting the overestimation bias of standard DQN.
+    \item It retains the computational simplicity of DQN while yielding more stable and reliable performance.
+    \item It is now considered a standard component in most modern deep reinforcement learning algorithms (e.g., Rainbow DQN, Dueling DQN).
+\end{itemize}
+
+---
+
+\subsubsection*{Reference}
+
+\begin{quote}
+van Hasselt, H., Guez, A., and Silver, D. (2016).  
+\textit{Deep Reinforcement Learning with Double Q-learning}.  
+In Proceedings of the 30th AAAI Conference on Artificial Intelligence.
+\end{quote}
+
+\end{CJK}
+\end{document}
